@@ -6,16 +6,10 @@
     <groupId>io.searchbox</groupId>
     <artifactId>jest-parent</artifactId>
     <packaging>pom</packaging>
-    <version>2.0.2-SNAPSHOT</version>
+    <version>2.0.4-SNAPSHOT</version>
     <name>Jest Parent POM</name>
     <description>Parent POM for Jest - ElasticSearch Java rest client</description>
     <url>https://github.com/searchbox-io/Jest</url>
-
-    <parent>
-        <groupId>org.sonatype.oss</groupId>
-        <artifactId>oss-parent</artifactId>
-        <version>9</version>
-    </parent>
 
     <modules>
         <module>jest-common</module>
@@ -37,14 +31,12 @@
         <url>git@github.com:searchbox-io/Jest.git</url>
     </scm>
 
-    <repositories>
-        <repository>
-            <id>sonatype</id>
-            <name>Sonatype Groups</name>
-            <url>https://oss.sonatype.org/content/groups/public/</url>
-        </repository>
-    </repositories>
-
+    <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <developers>
         <developer>
@@ -81,21 +73,36 @@
         <httpAsyncClient.version>4.1.1</httpAsyncClient.version>
         <httpclientandroid.version>4.3.5.1</httpclientandroid.version>
 
-        <slf4j.version>1.7.13</slf4j.version>
+        <slf4j.version>1.7.21</slf4j.version>
 
         <guava.version>19.0</guava.version>
         <gson.version>2.6.2</gson.version>
         <mockito.version>1.10.19</mockito.version>
 
         <commonsLang.version>3.4</commonsLang.version>
-        <commons-io.version>2.4</commons-io.version>
+        <commons-io.version>2.5</commons-io.version>
         <junit.version>4.12</junit.version>
 
         <plugin.surefire.version>2.19.1</plugin.surefire.version>
+        <plugin.sonatype.version>1.6.7</plugin.sonatype.version>
+        <plugin.gpg.version>1.6</plugin.gpg.version>
     </properties>
     <build>
         <defaultGoal>install</defaultGoal>
         <plugins>
+
+            <plugin>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>${plugin.sonatype.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <serverId>ossrh</serverId>
+                    <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${plugin.surefire.version}</version>
@@ -117,6 +124,7 @@
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
@@ -125,11 +133,12 @@
                     <execution>
                         <id>attach-sources</id>
                         <goals>
-                            <goal>jar</goal>
+                            <goal>jar-no-fork</goal>
                         </goals>
                     </execution>
                 </executions>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
@@ -247,7 +256,7 @@
             <dependency>
                 <groupId>io.searchbox</groupId>
                 <artifactId>jest-common</artifactId>
-                <version>2.0.2-SNAPSHOT</version>
+                <version>2.0.4-SNAPSHOT</version>
             </dependency>
 
             <!-- Testing Dependencies -->
@@ -401,18 +410,13 @@
             </build>
         </profile>
         <profile>
-            <id>release-sign-artifacts</id>
-            <activation>
-                <property>
-                    <name>performRelease</name>
-                    <value>true</value>
-                </property>
-            </activation>
+            <id>sign-artifacts</id>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${plugin.gpg.version}</version>
                         <executions>
                             <execution>
                                 <id>sign-artifacts</id>
@@ -422,11 +426,6 @@
                                 </goals>
                             </execution>
                         </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-release-plugin</artifactId>
-                        <version>2.5.2</version>
                     </plugin>
                 </plugins>
             </build>

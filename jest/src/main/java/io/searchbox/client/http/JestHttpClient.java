@@ -4,18 +4,23 @@ import io.searchbox.action.Action;
 import io.searchbox.client.AbstractJestClient;
 import io.searchbox.client.JestResult;
 import io.searchbox.client.JestResultHandler;
+import io.searchbox.client.config.exception.CouldNotConnectException;
 import io.searchbox.client.http.apache.HttpDeleteWithEntity;
 import io.searchbox.client.http.apache.HttpGetWithEntity;
 import java.io.IOException;
 import java.util.Map.Entry;
+import java.util.concurrent.Future;
 
 import org.apache.http.*;
 import org.apache.http.client.entity.EntityBuilder;
+import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.concurrent.FutureCallback;
+import org.apache.http.conn.HttpHostConnectException;
 import org.apache.http.entity.ContentType;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
@@ -37,16 +42,22 @@ public class JestHttpClient extends AbstractJestClient {
     private CloseableHttpClient httpClient;
     private CloseableHttpAsyncClient asyncClient;
 
+    private HttpClientContext httpClientContextTemplate;
+
     /**
      * @throws IOException in case of a problem or the connection was aborted during request,
      *                     or in case of a problem while reading the response stream
+     * @throws CouldNotConnectException if an {@link HttpHostConnectException} is encountered
      */
     @Override
     public <T extends JestResult> T execute(Action<T> clientRequest) throws IOException {
         HttpUriRequest request = prepareRequest(clientRequest);
-        HttpResponse response = httpClient.execute(request);
-
-        return deserializeResponse(response, request, clientRequest);
+        try {
+            HttpResponse response = executeRequest(request);
+            return deserializeResponse(response, request, clientRequest);
+        } catch (HttpHostConnectException ex) {
+            throw new CouldNotConnectException(ex.getHost().toURI(), ex);
+        }
     }
 
     @Override
@@ -58,7 +69,7 @@ public class JestHttpClient extends AbstractJestClient {
         }
 
         HttpUriRequest request = prepareRequest(clientRequest);
-        asyncClient.execute(request, new DefaultCallback<T>(clientRequest, request, resultHandler));
+        executeAsyncRequest(clientRequest, resultHandler, request);
     }
 
     @Override
@@ -88,6 +99,30 @@ public class JestHttpClient extends AbstractJestClient {
         }
 
         return request;
+    }
+
+    protected CloseableHttpResponse executeRequest(HttpUriRequest request) throws IOException {
+        if (httpClientContextTemplate != null) {
+            return httpClient.execute(request, createContextInstance());
+        }
+
+        return httpClient.execute(request);
+    }
+
+    protected <T extends JestResult> Future<HttpResponse> executeAsyncRequest(Action<T> clientRequest, JestResultHandler<? super T> resultHandler, HttpUriRequest request) {
+        if (httpClientContextTemplate != null) {
+            return asyncClient.execute(request, createContextInstance(), new DefaultCallback<T>(clientRequest, request, resultHandler));
+        }
+
+        return asyncClient.execute(request, new DefaultCallback<T>(clientRequest, request, resultHandler));
+    }
+
+    protected HttpClientContext createContextInstance() {
+        HttpClientContext context = HttpClientContext.create();
+        context.setCredentialsProvider(httpClientContextTemplate.getCredentialsProvider());
+        context.setAuthCache(httpClientContextTemplate.getAuthCache());
+
+        return context;
     }
 
     protected HttpUriRequest constructHttpMethod(String methodName, String url, String payload) {
@@ -172,6 +207,14 @@ public class JestHttpClient extends AbstractJestClient {
         this.gson = gson;
     }
 
+    public HttpClientContext getHttpClientContextTemplate() {
+        return httpClientContextTemplate;
+    }
+
+    public void setHttpClientContextTemplate(HttpClientContext httpClientContext) {
+        this.httpClientContextTemplate = httpClientContext;
+    }
+
     protected class DefaultCallback<T extends JestResult> implements FutureCallback<HttpResponse> {
         private final Action<T> clientRequest;
         private final HttpRequest request;
@@ -197,6 +240,11 @@ public class JestHttpClient extends AbstractJestClient {
         @Override
         public void failed(final Exception ex) {
             log.error("Exception occurred during async execution.", ex);
+            if (ex instanceof HttpHostConnectException) {
+                String host = ((HttpHostConnectException) ex).getHost().toURI();
+                resultHandler.failed(new CouldNotConnectException(host, ex));
+                return;
+            }
             resultHandler.failed(ex);
         }
 

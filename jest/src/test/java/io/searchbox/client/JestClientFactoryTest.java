@@ -1,17 +1,28 @@
 package io.searchbox.client;
 
+import java.util.HashSet;
+
+import io.searchbox.client.config.ClientConfig;
 import io.searchbox.client.config.HttpClientConfig;
+import io.searchbox.client.config.discovery.NodeChecker;
 import io.searchbox.client.http.JestHttpClient;
 import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.HttpClientConnectionManager;
 import org.apache.http.conn.routing.HttpRoute;
+import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.conn.BasicHttpClientConnectionManager;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
 import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
 import org.apache.http.nio.conn.NHttpClientConnectionManager;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import static java.util.Arrays.asList;
 import static org.junit.Assert.*;
 
 /**
@@ -88,5 +99,57 @@ public class JestClientFactoryTest {
         assertEquals(20, ((PoolingNHttpClientConnectionManager) nConnectionManager).getMaxTotal());
         assertEquals(5, ((PoolingNHttpClientConnectionManager) nConnectionManager).getMaxPerRoute(routeOne));
         assertEquals(6, ((PoolingNHttpClientConnectionManager) nConnectionManager).getMaxPerRoute(routeTwo));
+    }
+
+    @Test
+    public void clientCreationWithDiscoveryAndOverriddenNodeChecker() {
+        JestClientFactory factory = Mockito.spy(new ExtendedJestClientFactory());
+        HttpClientConfig httpClientConfig = Mockito.spy(new HttpClientConfig.Builder("http://localhost:9200")
+                .discoveryEnabled(true)
+                .build());
+        factory.setHttpClientConfig(httpClientConfig);
+        JestHttpClient jestClient = (JestHttpClient) factory.getObject();
+        assertTrue(jestClient != null);
+        assertNotNull(jestClient.getAsyncClient());
+        assertEquals(jestClient.getServerPoolSize(), 1);
+        assertEquals("server list should contain localhost:9200",
+                "http://localhost:9200", jestClient.getNextServer());
+        Mockito.verify(factory, Mockito.times(1)).createNodeChecker(Mockito.any(JestHttpClient.class),
+                                                                    Mockito.same(httpClientConfig));
+    }
+
+    @Test
+    public void clientCreationWithPreemptiveAuth() {
+        JestClientFactory factory = new JestClientFactory();
+        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
+        credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials("someUser", "somePassword"));
+        HttpHost targetHost1 = new HttpHost("targetHostName1", 80, "http");
+        HttpHost targetHost2 = new HttpHost("targetHostName2", 80, "http");
+
+        HttpClientConfig httpClientConfig = new HttpClientConfig.Builder("someUri")
+                .credentialsProvider(credentialsProvider)
+                .preemptiveAuthTargetHosts(new HashSet<HttpHost>(asList(targetHost1, targetHost2)))
+                .build();
+
+        factory.setHttpClientConfig(httpClientConfig);
+        JestHttpClient jestHttpClient = (JestHttpClient) factory.getObject();
+        HttpClientContext httpClientContext = jestHttpClient.getHttpClientContextTemplate();
+
+        assertNotNull(httpClientContext.getAuthCache().get(targetHost1));
+        assertNotNull(httpClientContext.getAuthCache().get(targetHost2));
+        assertEquals(credentialsProvider, httpClientContext.getCredentialsProvider());
+    }
+
+    class ExtendedJestClientFactory extends JestClientFactory {
+        @Override
+        protected NodeChecker createNodeChecker(JestHttpClient client, HttpClientConfig httpClientConfig) {
+            return new OtherNodeChecker(client, httpClientConfig);
+        }
+    }
+
+    class OtherNodeChecker extends NodeChecker {
+        public OtherNodeChecker(JestClient jestClient, ClientConfig clientConfig) {
+            super(jestClient, clientConfig);
+        }
     }
 }

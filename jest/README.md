@@ -139,7 +139,7 @@ An index mapping can be created via Jest with ease, just pass the mapping source
 PutMapping putMapping = new PutMapping.Builder(
         "my_index",
         "my_type",
-        "{ \"document\" : { \"properties\" : { \"message\" : {\"type\" : \"string\", \"store\" : \"yes\"} } } }"
+        "{ \"my_type\" : { \"properties\" : { \"message\" : {\"type\" : \"string\", \"store\" : \"yes\"} } } }"
 ).build();
 client.execute(putMapping);
 ```
@@ -252,6 +252,25 @@ all id fields are of type String in Elasticsearch and the auto generated id cont
 numeric characters.
 So the non-String type support for JestId annotation is purely for ease of use and should
 not be used if you plan to use the automatic id generation functionality of Elasticsearch.
+
+#### Version field support (aka Optimistic Concurrency Control)
+
+`_version` field for documents are supported via the @JestVersion annotation. Marking a 
+property of your bean with @JestVersion will cause that field to be serialized and deserialized
+as `_version` in the document JSON communicated to Elasticsearch. This in turn lets you 
+use the [Optimistic Concurrency Control](https://www.elastic.co/guide/en/elasticsearch/guide/current/optimistic-concurrency-control.html#optimistic-concurrency-control) capabilities provided by Elasticsearch.
+
+```java
+class Article {
+
+@JestId
+private String documentId;
+
+@JestVersion
+private Long documentVersion;
+
+}
+```
 
 ### Searching Documents
 
@@ -455,6 +474,18 @@ ClientConfig clientConfig = new ClientConfig.Builder("http://localhost:9200")
     .build();
 ```
 
+Setting a filter on the nodes to discover will allow you specify they types of nodes to discover, 
+with the same syntax as outlined in [Node Specification](https://www.elastic.co/guide/en/elasticsearch/reference/current/cluster.html#cluster-nodes) for Elasticsearch.
+For example: 
+```java
+//enable host discovery
+ClientConfig clientConfig = new ClientConfig.Builder("http://localhost:9200")
+    .discoveryEnabled(true)
+    .discoveryFrequency(1l, TimeUnit.MINUTES)
+    .discoveryFilter("type:arbitrary")
+    .build();
+```
+
 ### Authentication
 
 Basic username and password authentication can be configured when constructing the client; it should be noted that
@@ -507,10 +538,11 @@ SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new Trus
 HostnameVerifier hostnameVerifier = NoopHostnameVerifier.INSTANCE;
 
 SSLConnectionSocketFactory sslSocketFactory = new SSLConnectionSocketFactory(sslContext, hostnameVerifier);
-SchemeIOSessionStrategy httpsIOSessionStrategy = SSLIOSessionStrategy(sslContext, hostnameVerifier);
+SchemeIOSessionStrategy httpsIOSessionStrategy = new SSLIOSessionStrategy(sslContext, hostnameVerifier);
 
 JestClientFactory factory = new JestClientFactory();
 factory.setHttpClientConfig(new HttpClientConfig.Builder("https://localhost:9200")
+                .defaultSchemeForDiscoveredNodes("https") // required, otherwise uses http
                 .sslSocketFactory(sslSocketFactory) // this only affects sync calls
                 .httpsIOSessionStrategy(httpsIOSessionStrategy) // this only affects async calls
                 .build()

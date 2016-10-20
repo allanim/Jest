@@ -1,7 +1,6 @@
 # Common IDEs
 *.iml
-.idea
-.idea/**/*
+.idea/
 build/
 data/
 target/
@@ -10,3 +9,7 @@ target/
 .classpath
 .DS_Store
 jest/lib
+local.*
+lib/
+*.versionsBackup
+

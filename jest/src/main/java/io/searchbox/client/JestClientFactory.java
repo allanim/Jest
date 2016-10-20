@@ -6,13 +6,20 @@ import io.searchbox.client.config.discovery.NodeChecker;
 import io.searchbox.client.config.idle.HttpReapableConnectionManager;
 import io.searchbox.client.config.idle.IdleConnectionReaper;
 import io.searchbox.client.http.JestHttpClient;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.http.HttpHost;
+import org.apache.http.client.AuthCache;
 import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.config.Registry;
 import org.apache.http.config.RegistryBuilder;
 import org.apache.http.conn.HttpClientConnectionManager;
 import org.apache.http.conn.routing.HttpRoute;
 import org.apache.http.conn.routing.HttpRoutePlanner;
 import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.impl.auth.BasicScheme;
+import org.apache.http.impl.client.BasicAuthCache;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
@@ -31,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Dogukan Sonmez
@@ -67,7 +75,10 @@ public class JestClientFactory {
         // set discovery (should be set after setting the httpClient on jestClient)
         if (httpClientConfig.isDiscoveryEnabled()) {
             log.info("Node Discovery enabled...");
-            NodeChecker nodeChecker = new NodeChecker(client, httpClientConfig);
+            if (StringUtils.isNotEmpty(httpClientConfig.getDiscoveryFilter())) {
+                log.info("Node Discovery filtering nodes on \"{}\"", httpClientConfig.getDiscoveryFilter());
+            }
+            NodeChecker nodeChecker = createNodeChecker(client, httpClientConfig);
             client.setNodeChecker(nodeChecker);
             nodeChecker.startAsync();
             nodeChecker.awaitRunning();
@@ -85,6 +96,12 @@ public class JestClientFactory {
             reaper.awaitRunning();
         } else {
             log.info("Idle connection reaping disabled...");
+        }
+
+        Set<HttpHost> preemptiveAuthTargetHosts = httpClientConfig.getPreemptiveAuthTargetHosts();
+        if (!preemptiveAuthTargetHosts.isEmpty()) {
+            log.info("Authentication cache set for preemptive authentication");
+            client.setHttpClientContextTemplate(createPreemptiveAuthContext(preemptiveAuthTargetHosts));
         }
 
         return client;
@@ -226,4 +243,29 @@ public class JestClientFactory {
 
         return retval;
     }
+
+    // Extension point
+    protected NodeChecker createNodeChecker(JestHttpClient client, HttpClientConfig httpClientConfig) {
+        return new NodeChecker(client, httpClientConfig);
+    }
+
+    // Extension point
+    protected HttpClientContext createPreemptiveAuthContext(Set<HttpHost> targetHosts) {
+        HttpClientContext context = HttpClientContext.create();
+        context.setCredentialsProvider(httpClientConfig.getCredentialsProvider());
+        context.setAuthCache(createBasicAuthCache(targetHosts));
+
+        return context;
+    }
+
+    private AuthCache createBasicAuthCache(Set<HttpHost> targetHosts) {
+        AuthCache authCache = new BasicAuthCache();
+        BasicScheme basicAuth = new BasicScheme();
+        for (HttpHost eachTargetHost : targetHosts) {
+            authCache.put(eachTargetHost, basicAuth);
+        }
+
+        return authCache;
+    }
+
 }

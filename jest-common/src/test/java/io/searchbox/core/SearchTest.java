@@ -1,22 +1,14 @@
 package io.searchbox.core;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertFalse;
-import static junit.framework.Assert.assertTrue;
-import static org.junit.Assert.assertNotEquals;
+import com.google.gson.*;
 import io.searchbox.action.Action;
 import io.searchbox.core.search.sort.Sort;
 import io.searchbox.core.search.sort.Sort.Sorting;
+import org.junit.Test;
 
 import java.util.Arrays;
 
-import org.junit.Test;
-
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import static org.junit.Assert.*;
 
 /**
  * @author Dogukan Sonmez
@@ -89,6 +81,12 @@ public class SearchTest {
     }
 
     @Test
+    public void getURIWithVersion() {
+        Action search = new Search.VersionBuilder("").addIndex("twitter").addType("tweet").build();
+        assertTrue("Version Parameter missing", search.getURI().contains("version=true"));
+    }
+
+    @Test
     public void sortTest() {
         String query = "{\"query\" : { \"term\" : { \"name\" : \"Milano\" } }}";
         Action search = new Search.Builder(query)
@@ -127,6 +125,25 @@ public class SearchTest {
     }
 
     @Test
+    public void addSortShouldNotOverrideExistingSortDefinitions() {
+        String query = "{\"query\" : { \"term\" : { \"name\" : \"Milano\" } }, \"sort\": [{\"existing\": { \"order\": \"desc\" }}]}";
+        Action search = new Search.Builder(query)
+                .addSort(Arrays.asList(sortByPopulationAsc, sortByPopulationDesc)).build();
+
+        JsonParser parser = new JsonParser();
+        JsonElement parsed = parser.parse(search.getData(new Gson()));
+        JsonObject obj = parsed.getAsJsonObject();
+        JsonArray sort = obj.getAsJsonArray("sort");
+
+        assertNotNull(sort);
+        assertEquals(3, sort.size());
+
+        assertEquals("{\"existing\":{\"order\":\"desc\"}}", sort.get(0).toString());
+        assertEquals("{\"population\":{\"order\":\"asc\"}}", sort.get(1).toString());
+        assertEquals("{\"population\":{\"order\":\"desc\"}}", sort.get(2).toString());
+    }
+
+    @Test
     public void equalsReturnsTrueForSameQueries() {
         Search search1 = new Search.Builder("query1").addIndex("twitter").addType("tweet").build();
         Search search1Duplicate = new Search.Builder("query1").addIndex("twitter").addType("tweet").build();
@@ -161,5 +178,4 @@ public class SearchTest {
 
         assertNotEquals(search1, search1Duplicate);
     }
-
 }
